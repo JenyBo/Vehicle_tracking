@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
 import 'dart:developer';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart' as l;
 import 'package:permission_handler/permission_handler.dart';
 import 'camera_screen.dart';
 import 'location_service.dart';
+import 'google_map.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -28,12 +32,25 @@ class _HomeScreenState extends State<HomeScreen> {
   int countdown = 5;
   bool isCountdownRunning = false;
   late Timer timer;
+  String? imagePath;
+  LatLng _currentPosition = const LatLng(0, 0);
 
   @override
   void initState() {
     super.initState();
     initLocationService();
     initCameras();
+    getCurrentLocation();
+  }
+
+  void getCurrentLocation() async {
+    l.LocationData currentLocation;
+    try {
+      currentLocation = await locationService.location.getLocation();
+      _currentPosition = LatLng(currentLocation.latitude!, currentLocation.longitude!);
+    } catch (e) {
+      print('Failed to get location: $e');
+    }
   }
 
   @override
@@ -53,11 +70,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void initLocationService() async {
-    await locationService.checkStatus();
-    setState(() {
-      gpsEnabled = locationService.gpsEnabled;
-      permissionGranted = locationService.permissionGranted;
-    });
+    permissionGranted = await locationService.isPermissionGranted();
+    gpsEnabled = await locationService.isGpsEnabled();
+    setState(() {}); // Add this line to trigger a rebuild of the UI
   }
 
   void startTracking() async {
@@ -91,79 +106,16 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         if (currentLocation != null) {
           addLocation(currentLocation);
-          if (areLastThreeLocationsSame(lastThreeLocations, 10.0)) { // 10.0 is the threshold in meters
-            showDialog(
-              context: context,
-              builder: (context) {
-                String dropdownValue = 'Road blockage';
-                String otherReason = '';
-                return StatefulBuilder(
-                  builder: (context, setState) {
-                    return AlertDialog(
-                      title: const Text('You are stopped !!!'),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          DropdownButton<String>(
-                            value: dropdownValue,
-                            onChanged: (String? newValue) {
-                              setState(() {
-                                dropdownValue = newValue!;
-                              });
-                            },
-                            items: <String>['Road blockage', 'Red light', 'Other reason']
-                                .map<DropdownMenuItem<String>>((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
-                            }).toList(),
-                          ),
-                          if (dropdownValue == 'Other reason')
-                            TextField(
-                              onChanged: (value) {
-                                otherReason = value;
-                              },
-                              decoration: const InputDecoration(
-                                hintText: 'Enter your reason',
-                              ),
-                            ),
-                        ],
-                      ),
-                      actions: <Widget>[
-                        TextButton(
-                          child: Text('OK'),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            print('Selected reason: $dropdownValue');
-                            if (dropdownValue == 'Other reason') {
-                              print('Other reason: $otherReason');
-                            }
-                          },
-                        ),
-                        if (dropdownValue == 'traffic jam' || dropdownValue == 'red light')
-                          TextButton(
-                            child: Text('Take Picture'),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => TakePictureScreen(
-                                    camera: cameras[0], // Pass the appropriate camera to the TakePictureScreen widget.
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                      ],
-                    );
-                  },
-                );
-              },
-            );
-            stopTracking();
-            return;
-          }
+          // if (areLastThreeLocationsSame(lastThreeLocations, 5.0)) { // 5.0 is the threshold in meters
+          //   showDialog(
+          //     context: context,
+          //     builder: (BuildContext context) {
+          //       return buildAlertDialog(context);
+          //     },
+          //   );
+          //   stopTracking();
+          //   return;
+          // }
         }
         startCountDown();
       } else {
@@ -183,6 +135,108 @@ class _HomeScreenState extends State<HomeScreen> {
       trackingEnabled = false;
     });
     clearLocation();
+  }
+
+  Future<void> takePicture() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TakePictureScreen(
+          camera: cameras[0], // Pass the appropriate camera to the TakePictureScreen widget.
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        imagePath = result as String;
+      });
+      // Do something with imagePath, like showing it in an AlertDialog.
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return buildAlertDialog(context);
+        },
+      );
+    }
+  }
+
+  AlertDialog buildAlertDialog(BuildContext context) {
+    String dropdownValue = 'Road blockage';
+    String otherReason = '';
+    return AlertDialog(
+      content: StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Text('You need to move'),
+              DropdownButton<String>(
+                value: dropdownValue,
+                onChanged: (String? newValue) {
+                  setState(() {
+                    dropdownValue = newValue!;
+                  });
+                },
+                items: <String>['Road blockage', 'Red light', 'Other reason']
+                    .map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+              ),
+              if (dropdownValue == 'Other reason')
+                TextField(
+                  onChanged: (value) {
+                    otherReason = value;
+                  },
+                  decoration: const InputDecoration(
+                    hintText: 'Enter your reason',
+                  ),
+                ),
+              if (imagePath != null)
+                SizedBox(
+                  child: Image.file(File(imagePath!)),
+                  height: 200, // Adjust the size as needed.
+                  width: 200, // Adjust the size as needed.
+                ),
+            ],
+          );
+        },
+      ),
+      actions: <Widget>[
+        TextButton(
+          child: Text('OK'),
+          onPressed: () {
+            if ((dropdownValue == 'Red light' || dropdownValue == 'Road blockage') && imagePath == null) {
+              // Show a message to the user indicating that they need to take a picture.
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please take a picture before pressing OK.')),
+              );
+            } else {
+              if (imagePath != null) {
+                Navigator.of(context).pop(); // Only pop the dialog off the stack if an image has been taken
+              }
+              Navigator.of(context).pop();
+              print('Selected reason: $dropdownValue');
+              if (dropdownValue == 'Other reason') {
+                print('Other reason: $otherReason');
+              }
+              if (mounted) { // Check if the widget is still in the tree
+                setState(() {
+                  imagePath = null; // Clear the imagePath
+                });
+              }
+            }
+          },
+        ),
+        if (dropdownValue == 'Road blockage' || dropdownValue == 'Red light') // Only show the 'Take Picture' button for these options
+          TextButton(
+            onPressed: takePicture,
+            child: const Text('Take Picture'),
+          ),
+      ],
+    );
   }
 
   void addLocation(l.LocationData data) {
@@ -218,16 +272,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return distanceInMeters <= thresholdInMeters;
   }
 
-  bool areLastThreeLocationsSame(List<l.LocationData> lastThreeLocations, double thresholdInMeters) {
-    if (lastThreeLocations.length < 3) {
-      return false;
-    }
-
-    bool isSameLocation1And2 = areLocationsClose(lastThreeLocations[0], lastThreeLocations[1], thresholdInMeters);
-    bool isSameLocation2And3 = areLocationsClose(lastThreeLocations[1], lastThreeLocations[2], thresholdInMeters);
-
-    return isSameLocation1And2 && isSameLocation2And3;
-  }
+  // bool areLastThreeLocationsSame(List<l.LocationData> lastThreeLocations, double thresholdInMeters) {
+  //   if (lastThreeLocations.length < 3) {
+  //     return false;
+  //   }
+  //
+  //   bool isSameLocation1And2 = areLocationsClose(lastThreeLocations[0], lastThreeLocations[1], thresholdInMeters);
+  //   bool isSameLocation2And3 = areLocationsClose(lastThreeLocations[1], lastThreeLocations[2], thresholdInMeters);
+  //
+  //   return isSameLocation1And2 && isSameLocation2And3;
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +289,17 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Location App'),
         centerTitle: true,
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => LoginScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -279,23 +344,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Text("Start")),
             ),
             Expanded(
-                child: ListView.builder(
-                  itemCount: locations.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(
-                          "${locations[index]['location'].latitude}, ${locations[index]['location'].longitude}"
-                      ),
-                      subtitle: Text(
-                          "Last updated: ${locations[index]['time']}"
-                      ),
-                      trailing: Text(
-                          "Countdown: $countdown"
-                      ),
-                    );
-                  },
-                )
-            )
+              flex: 1,
+              child: ListView.builder(
+                itemCount: locations.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    title: Text(
+                        "${locations[index]['location'].latitude}, ${locations[index]['location'].longitude}"
+                    ),
+                    subtitle: Text(
+                        "Last updated: ${locations[index]['time']}"
+                    ),
+                    trailing: Text(
+                        "Countdown: $countdown"
+                    ),
+                  );
+                },
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: GoogleMapWidget(
+                initialPosition: _currentPosition,
+                onPositionChanged: (LatLng newPosition) {
+                  setState(() {
+                    _currentPosition = newPosition;
+                  });
+                },
+              ),
+            ),
           ],
         ),
       ),

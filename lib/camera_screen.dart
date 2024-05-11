@@ -22,7 +22,7 @@ class TakePictureScreenState extends State<TakePictureScreen> {
     super.initState();
     _controller = CameraController(
       widget.camera,
-      ResolutionPreset.medium,
+      ResolutionPreset.low,
     );
     _initializeControllerFuture = _controller.initialize();
   }
@@ -52,8 +52,9 @@ class TakePictureScreenState extends State<TakePictureScreen> {
         onPressed: () async {
           try {
             await _initializeControllerFuture;
-            final image = await _controller.takePicture();
-            // You can save the image or do something else with it here.
+            final XFile image = await _controller.takePicture();
+            // Navigate back to the HomeScreen and pass the image path.
+            Navigator.pop(context, image.path);
           } catch (e) {
             print(e);
           }
