@@ -34,6 +34,13 @@ class _HomeScreenState extends State<HomeScreen> {
   late Timer timer;
   String? imagePath;
   LatLng _currentPosition = const LatLng(0, 0);
+  late GoogleMapController mapController;
+  final LatLng _center = const LatLng(20.9979212, 105.8482639);
+
+  void _onMapCreated(GoogleMapController controller) {
+    mapController = controller;
+  }
+
 
   @override
   void initState() {
@@ -101,21 +108,22 @@ class _HomeScreenState extends State<HomeScreen> {
         l.LocationData? currentLocation;
         try {
           currentLocation = await locationService.location.getLocation();
+          print(currentLocation);
         } catch (e) {
           print('Failed to get location: $e');
         }
         if (currentLocation != null) {
           addLocation(currentLocation);
-          // if (areLastThreeLocationsSame(lastThreeLocations, 5.0)) { // 5.0 is the threshold in meters
-          //   showDialog(
-          //     context: context,
-          //     builder: (BuildContext context) {
-          //       return buildAlertDialog(context);
-          //     },
-          //   );
-          //   stopTracking();
-          //   return;
-          // }
+          if (areLastThreeLocationsSame(lastThreeLocations, 5.0)) { // 5.0 is the threshold in meters
+            showDialog(
+              context: context,
+              builder: (BuildContext context) {
+                return buildAlertDialog(context);
+              },
+            );
+            stopTracking();
+            return;
+          }
         }
         startCountDown();
       } else {
@@ -272,16 +280,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return distanceInMeters <= thresholdInMeters;
   }
 
-  // bool areLastThreeLocationsSame(List<l.LocationData> lastThreeLocations, double thresholdInMeters) {
-  //   if (lastThreeLocations.length < 3) {
-  //     return false;
-  //   }
-  //
-  //   bool isSameLocation1And2 = areLocationsClose(lastThreeLocations[0], lastThreeLocations[1], thresholdInMeters);
-  //   bool isSameLocation2And3 = areLocationsClose(lastThreeLocations[1], lastThreeLocations[2], thresholdInMeters);
-  //
-  //   return isSameLocation1And2 && isSameLocation2And3;
-  // }
+  bool areLastThreeLocationsSame(List<l.LocationData> lastThreeLocations, double thresholdInMeters) {
+    if (lastThreeLocations.length < 3) {
+      return false;
+    }
+
+    bool isSameLocation1And2 = areLocationsClose(lastThreeLocations[0], lastThreeLocations[1], thresholdInMeters);
+    bool isSameLocation2And3 = areLocationsClose(lastThreeLocations[1], lastThreeLocations[2], thresholdInMeters);
+
+    return isSameLocation1And2 && isSameLocation2And3;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -344,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Text("Start")),
             ),
             Expanded(
-              flex: 1,
+              // flex: 1,
               child: ListView.builder(
                 itemCount: locations.length,
                 itemBuilder: (context, index) {
@@ -363,16 +371,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             Expanded(
-              flex: 2,
-              child: GoogleMapWidget(
-                initialPosition: _currentPosition,
-                onPositionChanged: (LatLng newPosition) {
-                  setState(() {
-                    _currentPosition = newPosition;
-                  });
-                },
-              ),
+              flex: 5,
+              child: GoogleMap(
+                onMapCreated: _onMapCreated,
+                initialCameraPosition: CameraPosition(
+                  target: _center,
+                  zoom: 15.0,
+                ),
             ),
+            )
           ],
         ),
       ),
